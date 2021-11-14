@@ -1,32 +1,22 @@
-{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TupleSections #-}
 module Main where
-
 import Data.List.Split(splitOn)
 import qualified GHC.List as L
 import qualified Data.Vector.Unboxed as V
 import GHC.Arr (Array (Array), array,(!))
 import GHC.Base (join)
+import Debug.Trace (trace)
 
-
-main :: IO ()
 main = do
     rulesFile <- readFile "puzzle.csv"
-    let rules = getRules rulesFile
-    print rules
-    let solution = recursiveCheck initialiseBoard rules
+    let solution = recursiveCheck (False, V.fromList (replicate 81 0)) (getRules rulesFile)
     print solution
 
-initialiseBoard :: V.Vector Int
-initialiseBoard = V.fromList (replicate 81 0)
-
-getRules :: String -> Array Int [Int]
 getRules s =
-    let l = (map (map (read::String->Int) . splitOn ",") . lines) s
-        f =  map (\l -> map (, l) (tail l)) l
-    in  array (0, 80) (concat f)
+    let l = (map (map (read::String->Int) . splitOn ",") . lines) s  -- turn rules string into a list of list of Ints
+        f =  map (\el -> map (, el) (tail el)) l                     -- create a tuple for each Int in the tail
+    in  array (0, 80) (concat f)                                     -- flatten and construct array
 
-relatedCells :: Array Int [Int]
 relatedCells = array (0, 80) (map (\x ->  (x, getRelatedCells x)) [0..80])
     where
         sameRow i j = i `quot` 9 == j `quot` 9
@@ -35,21 +25,16 @@ relatedCells = array (0, 80) (map (\x ->  (x, getRelatedCells x)) [0..80])
         isRelated cell el = cell /= el && (sameRow cell el || sameCol cell el || sameBlock cell el)
         getRelatedCells cell = filter (isRelated cell) [0..80]
 
-recursiveCheck :: V.Vector Int -> Array Int [Int] -> V.Vector Int
-recursiveCheck board rules =
-    let mCell = V.elemIndex 0 board
-    in case mCell of
-        Nothing -> board
-        Just i ->
-            head (map attempt [1..9])
-            where
-                newBoard m = board V.// [( board V.! i,m)]
-                validAttempt m = L.elem m (map (board V.!) (relatedCells!i))
-                                && last (rules!i) /= i
-                attempt m =
-                    if validAttempt m
-                        then recursiveCheck (newBoard m) rules
-                        else board
-
-
-
+recursiveCheck (solved, board) rules =
+    let zeroCell = V.elemIndex 0 board
+    in case zeroCell of
+        Nothing -> (True, board)
+        Just i -> foldl step (False, board) [1 .. 9]
+                  where
+                     validAttempt m = not (L.elem m (map (board V.!) (relatedCells!i)))
+                                       && (last (rules!i) /= i
+                                           || sum (map (board V.!) (tail(rules!i))) + m == head (rules!i))
+                     step acc m
+                        | fst acc = acc
+                        | validAttempt m = recursiveCheck (False, board V.// [(i, m)]) rules
+                        | otherwise = (False, board)
